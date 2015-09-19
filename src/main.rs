@@ -11,7 +11,7 @@ fn main() {
     let mut event_loop: EventLoop<EventHandler> = EventLoop::new().unwrap();
 
     // Create the event handler
-    let mut event_handler = EventHandler;
+    let mut event_handler = EventHandler::new();
 
     // Run the event loop
     event_loop.run(&mut event_handler).unwrap();
