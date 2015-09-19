@@ -1,14 +1,10 @@
 
 extern crate mio;
 
-use mio::{EventLoop,Handler};
+mod handler;
 
-struct EventHandler;
-
-impl Handler for EventHandler {
-    type Timeout = ();
-    type Message = ();
-}
+use mio::EventLoop;
+use handler::EventHandler;
 
 fn main() {
     // Create the event loop
