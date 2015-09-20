@@ -82,10 +82,17 @@ impl Server {
         self.pool.execute(move || {
             client.lock().unwrap().handle_readable();
         });
+    }
 
-        // Re-register for client events
-        // FIXME: this now needs to be done AFTER the client has run handle_readable,
-        //        but we don't know when that is going to finish.
-        // client.lock().unwrap().register(event_loop);
+    pub fn handle_client_done(&mut self, event_loop: &mut EventLoop<EventHandler>,
+                              client_token: Token)
+    {
+        let client = match self.clients.get_mut(&client_token) {
+            None => return,
+            Some(client) => client,
+        };
+
+        // Re-register for client readable events
+        client.lock().unwrap().register(event_loop);
     }
 }

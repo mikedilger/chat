@@ -42,6 +42,7 @@ impl Handler for EventHandler {
     {
         match message {
             Message::ClientDone(client_token) => {
+                self.server.handle_client_done(event_loop, client_token);
             },
         }
     }
