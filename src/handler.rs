@@ -1,6 +1,7 @@
 
 use mio::{Handler,EventLoop,Token,EventSet};
 use server::{Server,LISTENER_FD};
+use message::Message;
 
 pub struct EventHandler {
     server: Server,
@@ -20,7 +21,7 @@ impl EventHandler {
 
 impl Handler for EventHandler {
     type Timeout = ();
-    type Message = ();
+    type Message = Message;
 
     fn ready(&mut self, event_loop: &mut EventLoop<EventHandler>,
              token: Token, _events: EventSet)
@@ -33,6 +34,16 @@ impl Handler for EventHandler {
             client_token => {
                 self.server.handle_client_read(event_loop, client_token);
             }
+        }
+    }
+
+    fn notify(&mut self, event_loop: &mut EventLoop<EventHandler>,
+              message: Message)
+    {
+        match message {
+            Message::ClientDone(client_token) => {
+                self.server.handle_client_done(event_loop, client_token);
+            },
         }
     }
 }
