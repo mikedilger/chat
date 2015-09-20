@@ -6,6 +6,7 @@ extern crate num_cpus;
 mod handler;
 mod server;
 mod client;
+mod message;
 
 use std::net::SocketAddr;
 use mio::EventLoop;
