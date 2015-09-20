@@ -3,5 +3,9 @@ name = "chat"
 version = "0.1.0"
 authors = ["Mike Dilger <mike@optcomp.nz>"]
 
+[dependencies]
+threadpool = "0.1"
+num_cpus = "*"
+
 [dependencies.mio]
 git = "https://github.com/carllerche/mio"

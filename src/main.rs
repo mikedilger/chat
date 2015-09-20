@@ -1,5 +1,7 @@
 
 extern crate mio;
+extern crate threadpool;
+extern crate num_cpus;
 
 mod handler;
 mod server;
