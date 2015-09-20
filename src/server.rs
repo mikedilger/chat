@@ -2,6 +2,7 @@
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::sync::{Arc,Mutex};
+use threadpool::ThreadPool;
 use mio::tcp::TcpListener;
 use mio::{EventLoop,EventSet,PollOpt,Token};
 use handler::EventHandler;
@@ -13,11 +14,15 @@ pub struct Server {
     listener: TcpListener,
     clients: HashMap<Token, Arc<Mutex<Client>>>,
     next_free_token: usize,
+    pool: ThreadPool,
 }
 
 impl Server {
     pub fn new(address: &SocketAddr) -> Server
     {
+        // Create the thread pool
+        let pool = ThreadPool::new( ::num_cpus::get() );
+
         // See net2::TcpBuilder if finer-grained control is required
         // (e.g. ipv6 or setting the listen backlog)
         let listener = TcpListener::bind(address).unwrap();
@@ -25,6 +30,7 @@ impl Server {
             listener: listener,
             clients: HashMap::new(),
             next_free_token: 1,
+            pool: pool,
         }
     }
 
@@ -62,7 +68,7 @@ impl Server {
         client.lock().unwrap().register(event_loop);
     }
 
-    pub fn handle_client_read(&mut self, event_loop: &mut EventLoop<EventHandler>,
+    pub fn handle_client_read(&mut self, _event_loop: &mut EventLoop<EventHandler>,
                               client_token: Token)
     {
         let client = match self.clients.get_mut(&client_token) {
@@ -70,9 +76,13 @@ impl Server {
             Some(client) => client.clone(),
         };
 
-        client.lock().unwrap().handle_readable();
+        self.pool.execute(move || {
+            client.lock().unwrap().handle_readable();
+        });
 
         // Re-register for client events
-        client.lock().unwrap().register(event_loop);
+        // FIXME: this now needs to be done AFTER the client has run handle_readable,
+        //        but we don't know when that is going to finish.
+        // client.lock().unwrap().register(event_loop);
     }
 }
