@@ -58,4 +58,21 @@ impl Server {
                             EventSet::readable(),
                             PollOpt::edge() | PollOpt::oneshot()).unwrap();
     }
+
+    pub fn handle_client_read(&mut self, event_loop: &mut EventLoop<EventHandler>,
+                              client_token: Token)
+    {
+        let client = match self.clients.get(&client_token) {
+            None => return,
+            Some(client) => client,
+        };
+
+        // TBD: do something
+
+        // Re-register for readable events on the client socket
+        event_loop.reregister(client,
+                              client_token,
+                              EventSet::readable(),
+                              PollOpt::edge() | PollOpt::oneshot()).unwrap();
+    }
 }

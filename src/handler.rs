@@ -29,7 +29,10 @@ impl Handler for EventHandler {
             LISTENER_FD => {
                 self.server.accept(event_loop);
             },
-            _ => unreachable!("Ready event for unknown token"),
+            // All other tokens must be clients
+            client_token => {
+                self.server.handle_client_read(event_loop, client_token);
+            }
         }
     }
 }
