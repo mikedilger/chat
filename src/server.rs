@@ -1,6 +1,7 @@
 
 use std::net::SocketAddr;
 use std::collections::HashMap;
+use std::sync::{Arc,Mutex};
 use mio::tcp::TcpListener;
 use mio::{EventLoop,EventSet,PollOpt,Token};
 use handler::EventHandler;
@@ -10,7 +11,7 @@ pub const LISTENER_FD: Token = Token(0);
 
 pub struct Server {
     listener: TcpListener,
-    clients: HashMap<Token, Client>,
+    clients: HashMap<Token, Arc<Mutex<Client>>>,
     next_free_token: usize,
 }
 
@@ -51,17 +52,14 @@ impl Server {
         self.next_free_token += 1;
 
         // Build a new client
-        let client = Client::new(client_socket, new_token);
+        let client = Arc::new(Mutex::new(Client::new(client_socket, new_token)));
 
         // And remember that this token maps to this client
-        self.clients.insert(new_token, client);
-
-        // Lookup the client (we moved it into the map, now we need it again)
-        let client = self.clients.get_mut(&new_token).unwrap();
+        self.clients.insert(new_token, client.clone());
 
         // Register the client's readable events.  This must be after inserting
         // into the map, to be sure the server is actually ready
-        client.register(event_loop);
+        client.lock().unwrap().register(event_loop);
     }
 
     pub fn handle_client_read(&mut self, event_loop: &mut EventLoop<EventHandler>,
@@ -69,12 +67,12 @@ impl Server {
     {
         let client = match self.clients.get_mut(&client_token) {
             None => return,
-            Some(client) => client,
+            Some(client) => client.clone(),
         };
 
-        client.handle_readable();
+        client.lock().unwrap().handle_readable();
 
         // Re-register for client events
-        client.register(event_loop);
+        client.lock().unwrap().register(event_loop);
     }
 }
