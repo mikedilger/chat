@@ -48,6 +48,10 @@ impl Client {
                 println!("Read error: {:?}",e);
                 // Don't re-register --- FIXME, this just HANGS this client.
             },
+            Ok(0) => {
+                // We read zero bytes.  This means the peer has closed the connection.
+                self.sender.send(Message::ClientHup(self.token)).unwrap();
+            }
             Ok(_size) => {
                 let output = String::from_utf8_lossy(&buf);
                 print!("{}", output);

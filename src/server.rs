@@ -95,4 +95,8 @@ impl Server {
         // Re-register for client readable events
         client.lock().unwrap().register(event_loop);
     }
+
+    pub fn handle_client_hup(&mut self, client_token: Token) {
+        let _ = self.clients.remove(&client_token);
+    }
 }

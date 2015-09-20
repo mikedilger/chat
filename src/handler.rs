@@ -44,6 +44,9 @@ impl Handler for EventHandler {
             Message::ClientDone(client_token) => {
                 self.server.handle_client_done(event_loop, client_token);
             },
+            Message::ClientHup(client_token) => {
+                self.server.handle_client_hup(client_token);
+            },
         }
     }
 }
