@@ -28,13 +28,13 @@ impl Client {
         if ! self.registered {
             event_loop.register(&self.socket,
                                 self.token,
-                                EventSet::readable(),
+                                EventSet::readable() | EventSet::hup(),
                                 PollOpt::edge() | PollOpt::oneshot()).unwrap();
             self.registered = true;
         } else {
             event_loop.reregister(&self.socket,
                                   self.token,
-                                  EventSet::readable(),
+                                  EventSet::readable() | EventSet::hup(),
                                   PollOpt::edge() | PollOpt::oneshot()).unwrap();
         }
     }
@@ -51,7 +51,7 @@ impl Client {
             Ok(0) => {
                 // We read zero bytes.  This means the peer has closed the connection.
                 self.sender.send(Message::ClientHup(self.token)).unwrap();
-            }
+            },
             Ok(_size) => {
                 let output = String::from_utf8_lossy(&buf);
                 print!("{}", output);

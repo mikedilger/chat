@@ -24,7 +24,7 @@ impl Handler for EventHandler {
     type Message = Message;
 
     fn ready(&mut self, event_loop: &mut EventLoop<EventHandler>,
-             token: Token, _events: EventSet)
+             token: Token, events: EventSet)
     {
         match token {
             LISTENER_FD => {
@@ -32,7 +32,12 @@ impl Handler for EventHandler {
             },
             // All other tokens must be clients
             client_token => {
-                self.server.handle_client_read(event_loop, client_token);
+                if events.is_hup() {
+                    self.server.handle_client_hup(client_token);
+                }
+                else if events.is_readable() {
+                    self.server.handle_client_read(event_loop, client_token);
+                }
             }
         }
     }
