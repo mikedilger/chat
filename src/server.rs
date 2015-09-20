@@ -57,8 +57,11 @@ impl Server {
         let new_token = Token(self.next_free_token);
         self.next_free_token += 1;
 
+        // Build a channel to the event loop for use from the client thread
+        let sender = event_loop.channel();
+
         // Build a new client
-        let client = Arc::new(Mutex::new(Client::new(client_socket, new_token)));
+        let client = Arc::new(Mutex::new(Client::new(client_socket, new_token, sender)));
 
         // And remember that this token maps to this client
         self.clients.insert(new_token, client.clone());
