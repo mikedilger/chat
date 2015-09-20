@@ -36,4 +36,13 @@ impl Handler for EventHandler {
             }
         }
     }
+
+    fn notify(&mut self, event_loop: &mut EventLoop<EventHandler>,
+              message: Message)
+    {
+        match message {
+            Message::ClientDone(client_token) => {
+            },
+        }
+    }
 }
