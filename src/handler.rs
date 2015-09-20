@@ -1,7 +1,10 @@
 
 use mio::Handler;
+use server::Server;
 
-pub struct EventHandler;
+pub struct EventHandler {
+    server: Server,
+}
 
 impl Handler for EventHandler {
     type Timeout = ();
@@ -9,7 +12,9 @@ impl Handler for EventHandler {
 }
 
 impl EventHandler {
-    pub fn new() -> EventHandler {
-        EventHandler
+    pub fn new(server: Server) -> EventHandler {
+        EventHandler {
+            server: server
+        }
     }
 }
