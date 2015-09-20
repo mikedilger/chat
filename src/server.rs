@@ -1,15 +1,16 @@
 
 use std::net::SocketAddr;
 use std::collections::HashMap;
-use mio::tcp::{TcpListener,TcpStream};
+use mio::tcp::TcpListener;
 use mio::{EventLoop,EventSet,PollOpt,Token};
 use handler::EventHandler;
+use client::Client;
 
 pub const LISTENER_FD: Token = Token(0);
 
 pub struct Server {
     listener: TcpListener,
-    clients: HashMap<Token, TcpStream>,
+    clients: HashMap<Token, Client>,
     next_free_token: usize,
 }
 
@@ -49,30 +50,31 @@ impl Server {
         let new_token = Token(self.next_free_token);
         self.next_free_token += 1;
 
-        // And remember that this token maps to this client
-        self.clients.insert(new_token, client_socket);
+        // Build a new client
+        let client = Client::new(client_socket, new_token);
 
-        // Register for readable events on the client socket
-        event_loop.register(&self.clients[&new_token],
-                            new_token,
-                            EventSet::readable(),
-                            PollOpt::edge() | PollOpt::oneshot()).unwrap();
+        // And remember that this token maps to this client
+        self.clients.insert(new_token, client);
+
+        // Lookup the client (we moved it into the map, now we need it again)
+        let client = self.clients.get_mut(&new_token).unwrap();
+
+        // Register the client's readable events.  This must be after inserting
+        // into the map, to be sure the server is actually ready
+        client.register(event_loop);
     }
 
     pub fn handle_client_read(&mut self, event_loop: &mut EventLoop<EventHandler>,
                               client_token: Token)
     {
-        let client = match self.clients.get(&client_token) {
+        let client = match self.clients.get_mut(&client_token) {
             None => return,
             Some(client) => client,
         };
 
-        // TBD: do something
+        client.handle_readable();
 
-        // Re-register for readable events on the client socket
-        event_loop.reregister(client,
-                              client_token,
-                              EventSet::readable(),
-                              PollOpt::edge() | PollOpt::oneshot()).unwrap();
+        // Re-register for client events
+        client.register(event_loop);
     }
 }

@@ -3,6 +3,7 @@ extern crate mio;
 
 mod handler;
 mod server;
+mod client;
 
 use std::net::SocketAddr;
 use mio::EventLoop;
