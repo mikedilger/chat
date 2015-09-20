@@ -1,4 +1,5 @@
 
+use std::io::Read;
 use mio::tcp::TcpStream;
 use mio::{Token,EventLoop,EventSet,PollOpt,Sender};
 use handler::EventHandler;
@@ -40,9 +41,18 @@ impl Client {
 
     pub fn handle_readable(&mut self)
     {
-        // TBD: do something
-
-        // Notify that we are done
-        self.sender.send(Message::ClientDone(self.token)).unwrap();
+        // Read and echo to the console
+        let mut buf: [u8; 1024] = [0; 1024];
+        match self.socket.read(&mut buf[..]) {
+            Err(e) => {
+                println!("Read error: {:?}",e);
+                // Don't re-register --- FIXME, this just HANGS this client.
+            },
+            Ok(_size) => {
+                let output = String::from_utf8_lossy(&buf);
+                print!("{}", output);
+                self.sender.send(Message::ClientDone(self.token)).unwrap();
+            }
+        }
     }
 }
