@@ -41,5 +41,8 @@ impl Client {
     pub fn handle_readable(&mut self)
     {
         // TBD: do something
+
+        // Notify that we are done
+        self.sender.send(Message::ClientDone(self.token)).unwrap();
     }
 }
