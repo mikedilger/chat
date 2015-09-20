@@ -1,21 +1,24 @@
 
 use mio::tcp::TcpStream;
-use mio::{Token,EventLoop,EventSet,PollOpt};
+use mio::{Token,EventLoop,EventSet,PollOpt,Sender};
 use handler::EventHandler;
+use message::Message;
 
 pub struct Client {
     socket: TcpStream,
     token: Token,
     registered: bool,
+    sender: Sender<Message>,
 }
 
 impl Client {
-    pub fn new(socket: TcpStream, token: Token) -> Client
+    pub fn new(socket: TcpStream, token: Token, sender: Sender<Message>) -> Client
     {
         Client {
             socket: socket,
             token: token,
             registered: false,
+            sender: sender,
         }
     }
 
@@ -38,5 +41,8 @@ impl Client {
     pub fn handle_readable(&mut self)
     {
         // TBD: do something
+
+        // Notify that we are done
+        self.sender.send(Message::ClientDone(self.token)).unwrap();
     }
 }
