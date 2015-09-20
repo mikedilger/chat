@@ -1,5 +1,5 @@
 
-use mio::Handler;
+use mio::{Handler,EventLoop};
 use server::Server;
 
 pub struct EventHandler {
@@ -16,5 +16,9 @@ impl EventHandler {
         EventHandler {
             server: server
         }
+    }
+
+    pub fn register_server(&mut self, event_loop: &mut EventLoop<EventHandler>) {
+        self.server.register(event_loop);
     }
 }
