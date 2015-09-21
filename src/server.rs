@@ -84,6 +84,19 @@ impl Server {
         });
     }
 
+    pub fn handle_client_write(&mut self, _event_loop: &mut EventLoop<EventHandler>,
+                               client_token: Token)
+    {
+        let client = match self.clients.get_mut(&client_token) {
+            None => return,
+            Some(client) => client.clone(),
+        };
+
+        self.pool.execute(move || {
+            client.lock().unwrap().handle_writable();
+        });
+    }
+
     pub fn handle_client_rearm(&mut self, event_loop: &mut EventLoop<EventHandler>,
                               client_token: Token)
     {

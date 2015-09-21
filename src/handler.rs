@@ -35,6 +35,9 @@ impl Handler for EventHandler {
                 if events.is_hup() {
                     self.server.handle_client_close(client_token);
                 }
+                if events.is_writable() {
+                    self.server.handle_client_write(event_loop, client_token);
+                }
                 else if events.is_readable() {
                     self.server.handle_client_read(event_loop, client_token);
                 }

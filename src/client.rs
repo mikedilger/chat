@@ -59,4 +59,12 @@ impl Client {
             }
         }
     }
+
+    pub fn handle_writable(&mut self)
+    {
+        // Ignore and re-arm
+        // FIXME: this will just retrigger EVERY TICK if we keep listining for
+        // writable events.
+        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+    }
 }
