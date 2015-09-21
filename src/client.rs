@@ -1,5 +1,5 @@
 
-use std::io::Read;
+use std::io::{Read,Write};
 use mio::tcp::TcpStream;
 use mio::{Token,EventLoop,EventSet,PollOpt,Sender};
 use handler::EventHandler;
@@ -67,7 +67,7 @@ impl Client {
                 match self.socket.read(&mut buf[..]) {
                     Err(e) => {
                         println!("Read error: {:?}",e);
-                        // Don't re-register --- FIXME, this just HANGS this client.
+                        self.sender.send(EventMessage::Close(self.token)).unwrap();
                     },
                     Ok(0) => {
                         // We read zero bytes.  This means the peer has closed the connection.
@@ -92,11 +92,33 @@ impl Client {
             ClientState::WaitingOrReadingChatMessage =>
                 unreachable!("We are not waiting for write (WaitingOrReadingChatMessage)"),
             ClientState::WritingChatMessage => {
-                // FIXME: currently we don't write anything, and as we stay in the same
-                // state, this will trigger over and over every tick.
+                match self.socket.write(&mut self.outgoing) {
+                    Err(e) => {
+                        println!("Write error: {:?}",e);
+                        self.sender.send(EventMessage::Close(self.token)).unwrap();
+                    },
+                    Ok(0) => {
+                        // Write is finished.  Revert state
+                        self.state = ClientState::WaitingOrReadingChatMessage;
+                        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+                    },
+                    Ok(_size) => {
+                        // FIXME - check for size and only take that much off the front
+                        self.outgoing.truncate(0);
+                    }
+                }
+
                 self.sender.send(EventMessage::ReArm(self.token)).unwrap();
             },
         }
+    }
+
+    pub fn handle_message(&mut self, message: Vec<u8>)
+    {
+        self.outgoing.push_all(&message[..]);
+        self.outgoing.push(0x0A);
+        self.state = ClientState::WritingChatMessage;
+        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
     }
 
     pub fn process_incoming(&mut self, buf: &[u8]) {
@@ -108,6 +130,7 @@ impl Client {
                 message.remove(0); // Drop the leading LF
                 ::std::mem::swap(&mut self.incoming, &mut message);
                 println!("{}", String::from_utf8_lossy(&message));
+                self.sender.send(EventMessage::Message(message.clone())).unwrap();
                 continue;
             }
             break;

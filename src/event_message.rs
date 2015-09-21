@@ -8,4 +8,7 @@ pub enum EventMessage {
     /// Client has detected the remote has closed or errored, and should be
     /// shut down
     Close(Token),
+
+    /// Client received this message
+    Message(Vec<u8>),
 }
