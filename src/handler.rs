@@ -1,7 +1,7 @@
 
 use mio::{Handler,EventLoop,Token,EventSet};
 use server::{Server,LISTENER_FD};
-use message::Message;
+use event_message::EventMessage;
 
 pub struct EventHandler {
     server: Server,
@@ -21,7 +21,7 @@ impl EventHandler {
 
 impl Handler for EventHandler {
     type Timeout = ();
-    type Message = Message;
+    type Message = EventMessage;
 
     fn ready(&mut self, event_loop: &mut EventLoop<EventHandler>,
              token: Token, events: EventSet)
@@ -33,7 +33,7 @@ impl Handler for EventHandler {
             // All other tokens must be clients
             client_token => {
                 if events.is_hup() {
-                    self.server.handle_client_hup(client_token);
+                    self.server.handle_client_close(client_token);
                 }
                 else if events.is_readable() {
                     self.server.handle_client_read(event_loop, client_token);
@@ -43,14 +43,14 @@ impl Handler for EventHandler {
     }
 
     fn notify(&mut self, event_loop: &mut EventLoop<EventHandler>,
-              message: Message)
+              message: EventMessage)
     {
         match message {
-            Message::ClientDone(client_token) => {
-                self.server.handle_client_done(event_loop, client_token);
+            EventMessage::ReArm(client_token) => {
+                self.server.handle_client_rearm(event_loop, client_token);
             },
-            Message::ClientHup(client_token) => {
-                self.server.handle_client_hup(client_token);
+            EventMessage::Close(client_token) => {
+                self.server.handle_client_close(client_token);
             },
         }
     }

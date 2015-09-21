@@ -3,17 +3,17 @@ use std::io::Read;
 use mio::tcp::TcpStream;
 use mio::{Token,EventLoop,EventSet,PollOpt,Sender};
 use handler::EventHandler;
-use message::Message;
+use event_message::EventMessage;
 
 pub struct Client {
     socket: TcpStream,
     token: Token,
     registered: bool,
-    sender: Sender<Message>,
+    sender: Sender<EventMessage>,
 }
 
 impl Client {
-    pub fn new(socket: TcpStream, token: Token, sender: Sender<Message>) -> Client
+    pub fn new(socket: TcpStream, token: Token, sender: Sender<EventMessage>) -> Client
     {
         Client {
             socket: socket,
@@ -50,12 +50,12 @@ impl Client {
             },
             Ok(0) => {
                 // We read zero bytes.  This means the peer has closed the connection.
-                self.sender.send(Message::ClientHup(self.token)).unwrap();
+                self.sender.send(EventMessage::Close(self.token)).unwrap();
             },
             Ok(_size) => {
                 let output = String::from_utf8_lossy(&buf);
                 print!("{}", output);
-                self.sender.send(Message::ClientDone(self.token)).unwrap();
+                self.sender.send(EventMessage::ReArm(self.token)).unwrap();
             }
         }
     }

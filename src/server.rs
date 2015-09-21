@@ -84,7 +84,7 @@ impl Server {
         });
     }
 
-    pub fn handle_client_done(&mut self, event_loop: &mut EventLoop<EventHandler>,
+    pub fn handle_client_rearm(&mut self, event_loop: &mut EventLoop<EventHandler>,
                               client_token: Token)
     {
         let client = match self.clients.get_mut(&client_token) {
@@ -96,7 +96,7 @@ impl Server {
         client.lock().unwrap().register(event_loop);
     }
 
-    pub fn handle_client_hup(&mut self, client_token: Token) {
+    pub fn handle_client_close(&mut self, client_token: Token) {
         let _ = self.clients.remove(&client_token);
     }
 }
