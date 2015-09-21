@@ -102,7 +102,7 @@ impl Server {
     {
         let client = match self.clients.get_mut(&client_token) {
             None => return,
-            Some(client) => client,
+            Some(client) => client.clone(),
         };
 
         // Re-register for client readable events

@@ -1,4 +1,6 @@
 
+#![feature(vec_push_all)]
+
 extern crate mio;
 extern crate threadpool;
 extern crate num_cpus;

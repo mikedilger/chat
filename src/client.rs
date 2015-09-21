@@ -17,6 +17,8 @@ pub struct Client {
     token: Token,
     sender: Sender<EventMessage>,
     state: ClientState,
+    incoming: Vec<u8>,
+    outgoing: Vec<u8>,
 }
 
 impl Client {
@@ -27,6 +29,8 @@ impl Client {
             token: token,
             sender: sender,
             state: ClientState::New,
+            incoming: Vec::with_capacity(1024),
+            outgoing: Vec::with_capacity(1024),
         }
     }
 
@@ -69,9 +73,8 @@ impl Client {
                         // We read zero bytes.  This means the peer has closed the connection.
                         self.sender.send(EventMessage::Close(self.token)).unwrap();
                     },
-                    Ok(_size) => {
-                        let output = String::from_utf8_lossy(&buf);
-                        print!("{}", output);
+                    Ok(size) => {
+                        self.process_incoming(&buf[..size]);
                         self.sender.send(EventMessage::ReArm(self.token)).unwrap();
                     }
                 }
@@ -93,6 +96,21 @@ impl Client {
                 // state, this will trigger over and over every tick.
                 self.sender.send(EventMessage::ReArm(self.token)).unwrap();
             },
+        }
+    }
+
+    pub fn process_incoming(&mut self, buf: &[u8]) {
+        self.incoming.push_all(&buf);
+
+        loop {
+            if let Some(cr) = self.incoming.iter().position(|c| *c==0x0A) {
+                let mut message = self.incoming.split_off(cr);
+                message.remove(0); // Drop the leading LF
+                ::std::mem::swap(&mut self.incoming, &mut message);
+                println!("{}", String::from_utf8_lossy(&message));
+                continue;
+            }
+            break;
         }
     }
 }
