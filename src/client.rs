@@ -13,8 +13,8 @@ pub enum ClientState {
 }
 
 pub struct Client {
+    pub token: Token,
     socket: TcpStream,
-    token: Token,
     sender: Sender<EventMessage>,
     state: ClientState,
     incoming: Vec<u8>,
@@ -130,7 +130,7 @@ impl Client {
                 message.remove(0); // Drop the leading LF
                 ::std::mem::swap(&mut self.incoming, &mut message);
                 println!("{}", String::from_utf8_lossy(&message));
-                self.sender.send(EventMessage::Message(message.clone())).unwrap();
+                self.sender.send(EventMessage::Message(self.token, message.clone())).unwrap();
                 continue;
             }
             break;
