@@ -59,8 +59,10 @@ impl Client {
     pub fn handle_readable(&mut self)
     {
         match self.state {
-            ClientState::New =>
-                unreachable!("State should have moved passed new prior to first register"),
+            ClientState::New => {
+                println!("Event out of step: Readable, but ClientState::New");
+                self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+            },
             ClientState::WaitingOrReadingChatMessage => {
                 // Read and echo to the console
                 let mut buf: [u8; 1024] = [0; 1024];
@@ -79,18 +81,24 @@ impl Client {
                     }
                 }
             },
-            ClientState::WritingChatMessage =>
-                unreachable!("We are not waiting for read (WritingChatMessage)"),
+            ClientState::WritingChatMessage => {
+                println!("Event out of step: Readable, but ClientState::WritingChatMessage");
+                self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+            }
         }
     }
 
     pub fn handle_writable(&mut self)
     {
         match self.state {
-            ClientState::New =>
-                unreachable!("State should have moved passed new prior to first register"),
-            ClientState::WaitingOrReadingChatMessage =>
-                unreachable!("We are not waiting for write (WaitingOrReadingChatMessage)"),
+            ClientState::New => {
+                println!("Event out of step: Writable, but ClientState::New");
+                self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+            },
+            ClientState::WaitingOrReadingChatMessage => {
+                println!("Event out of step: Writable, but ClientState::WaitingOrReadingChatMessage");
+                self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+            },
             ClientState::WritingChatMessage => {
                 match self.socket.write(&mut self.outgoing) {
                     Err(e) => {
