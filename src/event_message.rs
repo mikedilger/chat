@@ -10,5 +10,5 @@ pub enum EventMessage {
     Close(Token),
 
     /// Client received this message
-    Message(Token, Vec<u8>),
+    Message(Token, String),
 }

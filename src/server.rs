@@ -113,7 +113,7 @@ impl Server {
         let _ = self.clients.remove(&client_token);
     }
 
-    pub fn handle_client_message(&mut self, client_token: Token, message: Vec<u8>) {
+    pub fn handle_client_message(&mut self, client_token: Token, message: String) {
         for (_,client) in self.clients.iter() {
             // FIXME: send clients an arc around a singular message in memory,
             //  dont clone the message for every client
