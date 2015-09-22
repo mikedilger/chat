@@ -1,22 +1,32 @@
 
 use std::io::{Read,Write};
+use std::sync::Arc;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fmt;
+
 use mio::tcp::TcpStream;
 use mio::{Token,EventLoop,EventSet,PollOpt,Sender};
+use http_muncher::{Parser, ParserHandler};
+
 use handler::EventHandler;
 use event_message::EventMessage;
+use http::HttpParser;
 
 #[derive(Debug,PartialEq,Eq,PartialOrd,Ord)]
 pub enum ClientState {
     New,
-    WaitingToGreet,
-    WaitingForName,
-    WaitingOrReadingChatMessage,
-    WritingChatMessage,
+    AwaitingHandshake,
+    HandshakeResponse,
+    Running,
+    RunningAndWriting,
 }
 
 pub struct Client {
     pub token: Token,
     socket: TcpStream,
+    headers: Arc<RefCell<HashMap<String, String>>>, // FIXME try linear_map
+    http_parser: Parser<HttpParser>,
     sender: Sender<EventMessage>,
     state: ClientState,
     incoming: Vec<u8>,
@@ -27,34 +37,41 @@ pub struct Client {
 impl Client {
     pub fn new(socket: TcpStream, token: Token, sender: Sender<EventMessage>) -> Client
     {
+        let headers = Arc::new(RefCell::new(HashMap::new()));
         Client {
             socket: socket,
+            headers: headers.clone(),
+            http_parser: Parser::request(HttpParser {
+                current_key: None,
+                headers: headers.clone()
+            }),
             token: token,
             sender: sender,
-            state: ClientState::New,
+            state: ClientState::AwaitingHandshake,
             incoming: Vec::with_capacity(1024),
             outgoing: Vec::with_capacity(1024),
             name: "Guest".to_string(),
         }
     }
 
+    /// (re)register interest in events, chosen based on the current state
     pub fn register(&mut self, event_loop: &mut EventLoop<EventHandler>)
     {
         if self.state == ClientState::New {
-            self.state = ClientState::WaitingToGreet;
+            self.state = ClientState::AwaitingHandshake;
             event_loop.register(&self.socket,
                                 self.token,
-                                EventSet::writable() | EventSet::hup(),
+                                EventSet::readable() | EventSet::hup(),
                                 PollOpt::edge() | PollOpt::oneshot()).unwrap();
             return;
         }
 
         let event_set = EventSet::hup() | match self.state {
             ClientState::New => unreachable!("Handled above"),
-            ClientState::WaitingToGreet => EventSet::writable(),
-            ClientState::WaitingForName => EventSet::readable(),
-            ClientState::WaitingOrReadingChatMessage => EventSet::readable(),
-            ClientState::WritingChatMessage => EventSet::writable(),
+            ClientState::AwaitingHandshake => EventSet::readable(),
+            ClientState::HandshakeResponse => EventSet::writable(),
+            ClientState::Running => EventSet::readable(),
+            ClientState::RunningAndWriting => EventSet::writable() | EventSet::readable(),
         };
         event_loop.reregister(&self.socket,
                               self.token,
@@ -62,6 +79,7 @@ impl Client {
                               PollOpt::edge() | PollOpt::oneshot()).unwrap();
     }
 
+    /// Handle a readable event
     pub fn handle_readable(&mut self)
     {
         match self.state {
@@ -69,13 +87,10 @@ impl Client {
                 println!("Event out of step: Readable, but ClientState::New");
                 self.sender.send(EventMessage::ReArm(self.token)).unwrap();
             },
-            ClientState::WaitingToGreet => {
-                println!("Event out of step: Readable, but ClientState::WaitingToGreet");
-                self.sender.send(EventMessage::ReArm(self.token)).unwrap();
-            },
-            ClientState::WaitingForName => {
-                let mut buf: [u8; 1024] = [0; 1024];
-                match self.socket.read(&mut buf[..]) {
+            ClientState::AwaitingHandshake => {
+                // FIXME: read in a loop
+                let mut buf = [0; 2048];
+                match self.socket.read(&mut buf) {
                     Err(e) => {
                         println!("Read error: {:?}",e);
                         self.sender.send(EventMessage::Close(self.token)).unwrap();
@@ -84,15 +99,33 @@ impl Client {
                         // We read zero bytes.  This means the peer has closed the connection.
                         self.sender.send(EventMessage::Close(self.token)).unwrap();
                     },
-                    Ok(_size) => {
-                        let name = String::from_utf8_lossy(&buf).into_owned();
-                        self.name = name.trim_matches(|c: char| ! c.is_alphanumeric()).to_owned();
-                        self.state = ClientState::WaitingOrReadingChatMessage;
-                        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+                    Ok(size) => {
+                        self.http_parser.parse(&buf);
+                        if self.http_parser.is_upgrade() {
+                            let headers = self.headers.borrow();
+                            let response_key = ::http::gen_key(
+                                &headers.get("Sec-WebSocket-Key").unwrap());
+                            self.outgoing = fmt::format(
+                                format_args!("HTTP/1.1 101 Switching Protocols\r\n\
+                                              Connection: Upgrade\r\n\
+                                              Sec-WebSocket-Accept: {}\r\n\
+                                              Upgrade: websocket\r\n\r\n",
+                                             response_key)).as_bytes();
+                            self.state = ClientState::HandshakeResponse;
+                        }
+                        else {
+                            panic!("FIXME: we need to keep reading into a buffer somewhere");
+                            // and loop around.
+                        }
                     }
                 }
             },
-            ClientState::WaitingOrReadingChatMessage => {
+            ClientState::HandshakeResponse => {
+                println!("Event out of step: Readable, but ClientState::WaitingToGreet");
+                self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+            },
+            ClientState::Running | ClientState::RunningAndWriting => {
+                // FIXME: read in a loop
                 let mut buf: [u8; 1024] = [0; 1024];
                 match self.socket.read(&mut buf[..]) {
                     Err(e) => {
@@ -109,10 +142,6 @@ impl Client {
                     }
                 }
             },
-            ClientState::WritingChatMessage => {
-                println!("Event out of step: Readable, but ClientState::WritingChatMessage");
-                self.sender.send(EventMessage::ReArm(self.token)).unwrap();
-            }
         }
     }
 
@@ -123,36 +152,12 @@ impl Client {
                 println!("Event out of step: Writable, but ClientState::New");
                 self.sender.send(EventMessage::ReArm(self.token)).unwrap();
             },
-            ClientState::WaitingToGreet => {
-                let greeting = b"Enter a chat handle for yourself: ";
-                match self.socket.write(greeting) {
-                    Ok(size) if size == greeting.len() => {
-                        self.state = ClientState::WaitingForName;
-                        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
-                    },
-                    Ok(size) if size < greeting.len() => {
-                        // FIXME: remember how much we wrote so we can write the
-                        // rest later.  FOR NOW we will just move to the next
-                        // state anyhow and never send the remainder.
-                        self.state = ClientState::WaitingForName;
-                        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
-                    },
-                    Ok(_) => unreachable!("Read broke its promise"),
-                    Err(e) => {
-                        println!("Write error: {:?}",e);
-                        self.sender.send(EventMessage::Close(self.token)).unwrap();
-                    }
-                }
-            },
-            ClientState::WaitingForName => {
-                println!("Event out of step: Writable, but ClientState::WaitingForName");
+            ClientState::AwaitingHandshake => {
+                println!("Event out of step: Writable, but ClientState::AwaitingHandshake");
                 self.sender.send(EventMessage::ReArm(self.token)).unwrap();
             },
-            ClientState::WaitingOrReadingChatMessage => {
-                println!("Event out of step: Writable, but ClientState::WaitingOrReadingChatMessage");
-                self.sender.send(EventMessage::ReArm(self.token)).unwrap();
-            },
-            ClientState::WritingChatMessage => {
+            ClientState::HandshakeResponse | ClientState::RunningAndWriting => {
+                // FIXME: write in a loop
                 match self.socket.write(&mut self.outgoing) {
                     Err(e) => {
                         println!("Write error: {:?}",e);
@@ -160,15 +165,23 @@ impl Client {
                     },
                     Ok(0) => {
                         // Write is finished.  Revert state
-                        self.state = ClientState::WaitingOrReadingChatMessage;
+                        self.state = ClientState::Running;
                         self.sender.send(EventMessage::ReArm(self.token)).unwrap();
                     },
-                    Ok(_size) => {
-                        // FIXME - check for size and only take that much off the front
+                    Ok(size) if size==self.outgoing.len() => {
                         self.outgoing.truncate(0);
+                        self.state = ClientState::Running;
+                        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+                    }
+                    Ok(size) => {
+                        // FIXME - just take 'size' bytes off the front
+                        self.outgoing.truncate(0);
+                        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
                     }
                 }
-
+            },
+            ClientState::Running => {
+                println!("Event out of step: Writable, but ClientState::Running");
                 self.sender.send(EventMessage::ReArm(self.token)).unwrap();
             },
         }
@@ -176,14 +189,14 @@ impl Client {
 
     pub fn handle_message(&mut self, message: String)
     {
-        if self.state < ClientState::WaitingOrReadingChatMessage {
+        if self.state < ClientState::Running {
             // Do nothing if not yet setup
             return;
         }
 
         self.outgoing.push_all(message.as_bytes());
         self.outgoing.push(0x0A);
-        self.state = ClientState::WritingChatMessage;
+        self.state = ClientState::RunningAndWriting;
         self.sender.send(EventMessage::ReArm(self.token)).unwrap();
     }
 

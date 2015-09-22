@@ -13,6 +13,7 @@ mod handler;
 mod server;
 mod client;
 mod event_message;
+mod http;
 
 use std::net::SocketAddr;
 use mio::EventLoop;
