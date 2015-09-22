@@ -5,7 +5,7 @@ use mio::{Token,EventLoop,EventSet,PollOpt,Sender};
 use handler::EventHandler;
 use event_message::EventMessage;
 
-#[derive(Debug,PartialEq,Eq)]
+#[derive(Debug,PartialEq,Eq,PartialOrd,Ord)]
 pub enum ClientState {
     New,
     WaitingToGreet,
@@ -176,6 +176,11 @@ impl Client {
 
     pub fn handle_message(&mut self, message: String)
     {
+        if self.state < ClientState::WaitingOrReadingChatMessage {
+            // Do nothing if not yet setup
+            return;
+        }
+
         self.outgoing.push_all(message.as_bytes());
         self.outgoing.push(0x0A);
         self.state = ClientState::WritingChatMessage;
