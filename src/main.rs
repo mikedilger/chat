@@ -4,6 +4,10 @@
 extern crate mio;
 extern crate threadpool;
 extern crate num_cpus;
+extern crate http_muncher; // FIXME: try to move to httparse, it should be faster
+extern crate sha1; // FIXME: why not rust-crypto here?
+extern crate rustc_serialize;
+extern crate websocket;
 
 mod handler;
 mod server;
@@ -18,7 +22,7 @@ use server::Server;
 fn main() {
     // Create the server
     let server = {
-        let address = "127.0.0.1:10000".parse::<SocketAddr>().unwrap();
+        let address = "192.168.66.62:10000".parse::<SocketAddr>().unwrap();
         Server::new(&address)
     };
 

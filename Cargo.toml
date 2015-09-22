@@ -6,6 +6,10 @@ authors = ["Mike Dilger <mike@optcomp.nz>"]
 [dependencies]
 threadpool = "0.1"
 num_cpus = "*"
+http-muncher = "0.2"
+sha1 = "0.1"
+rustc-serialize = "0.3"
+websocket = "*"
 
 [dependencies.mio]
 git = "https://github.com/carllerche/mio"
