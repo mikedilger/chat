@@ -4,12 +4,21 @@ use mio::tcp::TcpStream;
 use mio::{Token,EventLoop,EventSet,PollOpt,Sender};
 use handler::EventHandler;
 use event_message::EventMessage;
+use http_parser::HttpParser;
+use http_muncher::Parser;
+use sha1;
+use rustc_serialize::base64::{ToBase64, STANDARD};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::fmt;
+
 
 #[derive(Debug,PartialEq,Eq,PartialOrd,Ord)]
 pub enum ClientState {
     New,
-    WaitingToGreet,
-    WaitingForName,
+    AwaitingHandshake,
+    HandshakeResponse,
     Running,
     RunningAndWriting,
 }
@@ -17,9 +26,9 @@ pub enum ClientState {
 impl ClientState {
     pub fn next(&self) -> ClientState {
         match *self {
-            ClientState::New => ClientState::WaitingToGreet,
-            ClientState::WaitingToGreet => ClientState::WaitingForName,
-            ClientState::WaitingForName => ClientState::Running,
+            ClientState::New => ClientState::AwaitingHandshake,
+            ClientState::AwaitingHandshake => ClientState::HandshakeResponse,
+            ClientState::HandshakeResponse => ClientState::Running,
             ClientState::Running => ClientState::Running,
             ClientState::RunningAndWriting => ClientState::Running,
         }
@@ -34,11 +43,15 @@ pub struct Client {
     incoming: Vec<u8>,
     outgoing: Vec<u8>,
     name: String,
+    headers: Arc<Mutex<HashMap<String, String>>>,
+    http_parser: Parser<HttpParser>,
 }
 
 impl Client {
     pub fn new(socket: TcpStream, token: Token, sender: Sender<EventMessage>) -> Client
     {
+        let headers = Arc::new(Mutex::new(HashMap::new()));
+
         Client {
             socket: socket,
             token: token,
@@ -47,6 +60,11 @@ impl Client {
             incoming: Vec::with_capacity(1024),
             outgoing: Vec::with_capacity(1024),
             name: "Guest".to_string(),
+            headers: headers.clone(),
+            http_parser: Parser::request(HttpParser{
+                current_key: None,
+                headers: headers.clone(),
+            }),
         }
     }
 
@@ -55,21 +73,23 @@ impl Client {
     {
         if self.state == ClientState::New {
             self.state = self.state.next();
-            self.outgoing = b"Enter a chat handle for yourself: ".to_vec();
+
             event_loop.register(&self.socket,
                                 self.token,
-                                EventSet::writable() | EventSet::hup(),
+                                EventSet::readable() | EventSet::hup(),
                                 PollOpt::edge() | PollOpt::oneshot()).unwrap();
+
             return;
         }
 
         let event_set = EventSet::hup() | match self.state {
             ClientState::New => unreachable!("Handled above"),
-            ClientState::WaitingToGreet => EventSet::writable(),
-            ClientState::WaitingForName => EventSet::readable(),
+            ClientState::HandshakeResponse => EventSet::writable(),
+            ClientState::AwaitingHandshake => EventSet::readable(),
             ClientState::Running => EventSet::readable(),
             ClientState::RunningAndWriting => EventSet::writable() | EventSet::readable(),
         };
+
         event_loop.reregister(&self.socket,
                               self.token,
                               event_set,
@@ -79,11 +99,11 @@ impl Client {
     pub fn handle_readable(&mut self)
     {
         match self.state {
-            ClientState::New | ClientState::WaitingToGreet => {
+            ClientState::New | ClientState::HandshakeResponse => {
                 println!("Event out of step: Readable, but {:?}", self.state);
                 self.sender.send(EventMessage::ReArm(self.token)).unwrap();
             },
-            ClientState::WaitingForName | ClientState::Running
+            ClientState::AwaitingHandshake | ClientState::Running
                 | ClientState::RunningAndWriting =>
             {
                 let mut buf: [u8; 1024] = [0; 1024];
@@ -112,10 +132,16 @@ impl Client {
                             break;
                         },
                         Ok(size) => {
-                            self.incoming.push_all(&buf[..size]);
+                            //self.incoming.extend_from_slice(&buf[..size]);
                             match self.state {
-                                ClientState::WaitingForName => {
-                                    self.process_name();
+                                ClientState::AwaitingHandshake => {
+
+                                    self.http_parser.parse(&buf[..size]);
+
+                                    if self.http_parser.is_upgrade() {
+                                        self.process_upgrade();
+                                        break;
+                                    }
                                     continue; // in case there is more to read
                                 },
                                 _ => {
@@ -133,13 +159,13 @@ impl Client {
     pub fn handle_writable(&mut self)
     {
         match self.state {
-            ClientState::New | ClientState::WaitingForName
+            ClientState::New | ClientState::AwaitingHandshake
                 | ClientState::Running =>
             {
                 println!("Event out of step: Writable, but {:?}", self.state);
                 self.sender.send(EventMessage::ReArm(self.token)).unwrap();
             },
-            ClientState::WaitingToGreet | ClientState::RunningAndWriting =>
+            ClientState::HandshakeResponse | ClientState::RunningAndWriting =>
             {
                 loop {
                     match self.socket.write(&mut self.outgoing) {
@@ -190,7 +216,7 @@ impl Client {
             return;
         }
 
-        self.outgoing.push_all(message.as_bytes());
+        self.outgoing.extend_from_slice(message.as_bytes());
         self.outgoing.push(0x0A);
         self.state = ClientState::RunningAndWriting;
         self.sender.send(EventMessage::ReArm(self.token)).unwrap();
@@ -211,15 +237,27 @@ impl Client {
         }
     }
 
-    // Process incoming name from the incoming buffer
-    pub fn process_name(&mut self) {
-        if let Some(lf) = self.incoming.iter().position(|c| *c==0x0A) {
-            let mut name = self.incoming.split_off(lf);
-            name.remove(0); // Drop the leading LF
-            ::std::mem::swap(&mut self.incoming, &mut name);
-            self.name = (&String::from_utf8_lossy(&name))
-                .trim_matches(|c: char| ! c.is_alphanumeric()).to_owned();
-            self.state = self.state.next();
-        }
+    // Process upgrade for the incoming buffer
+    pub fn process_upgrade(&mut self) {
+        let headers = self.headers.lock().unwrap();
+
+        let mut m = sha1::Sha1::new();
+        let mut rbuf = [0u8; 20];
+
+        m.update(&headers.get("Sec-WebSocket-Key").unwrap().as_bytes());
+        m.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11".as_bytes());
+
+        m.output(&mut rbuf);
+
+        let response = fmt::format(format_args!("HTTP/1.1 101 Switching Protocols\r\n\
+                                                 Connection: Upgrade\r\n\
+                                                 Sec-WebSocket-Accept: {}\r\n\
+                                                 Upgrade: websocket\r\n\r\n", rbuf.to_base64(STANDARD)));
+
+        self.outgoing.extend_from_slice(response.as_bytes());
+
+        self.state = ClientState::RunningAndWriting;
+
+        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
     }
 }

@@ -1,21 +1,25 @@
 
-#![feature(vec_push_all)]
-
 extern crate mio;
 extern crate threadpool;
 extern crate num_cpus;
+extern crate rustc_serialize;
+extern crate http_muncher;
+extern crate sha1;
 
 mod handler;
 mod server;
 mod client;
 mod event_message;
+mod http_parser;
 
 use std::net::SocketAddr;
 use mio::EventLoop;
 use handler::EventHandler;
 use server::Server;
 
+
 fn main() {
+
     // Create the server
     let server = {
         let address = "127.0.0.1:10000".parse::<SocketAddr>().unwrap();
