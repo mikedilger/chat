@@ -113,7 +113,7 @@ impl Server {
         let _ = self.clients.remove(&client_token);
     }
 
-    pub fn handle_client_message(&mut self, client_token: Token, message: String) {
+    pub fn handle_client_textmessage(&mut self, client_token: Token, message: String) {
         for (_,client) in self.clients.iter() {
             // FIXME: send clients an arc around a singular message in memory,
             //  dont clone the message for every client
@@ -122,7 +122,20 @@ impl Server {
             if client.token == client_token {
                 continue;
             }
-            client.handle_message(message.clone());
+            client.handle_textmessage(message.clone());
+        }
+    }
+
+    pub fn handle_client_binarymessage(&mut self, client_token: Token, message: Vec<u8>) {
+        for (_,client) in self.clients.iter() {
+            // FIXME: send clients an arc around a singular message in memory,
+            //  dont clone the message for every client
+
+            let mut client = client.lock().unwrap();
+            if client.token == client_token {
+                continue;
+            }
+            client.handle_binarymessage(message.clone());
         }
     }
 }

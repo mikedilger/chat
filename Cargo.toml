@@ -9,6 +9,7 @@ num_cpus = "*"
 rustc-serialize = "*"
 http-muncher = "*"
 sha1 = "*"
+byteorder = "*"
 
 [dependencies.mio]
 git = "https://github.com/carllerche/mio"

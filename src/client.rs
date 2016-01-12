@@ -7,6 +7,8 @@ use event_message::EventMessage;
 use http_parser::HttpParser;
 use http_muncher::Parser;
 use sha1;
+use websocket_frame::{WebSocketFrame, OpCode};
+
 use rustc_serialize::base64::{ToBase64, STANDARD};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -209,21 +211,58 @@ impl Client {
         }
     }
 
-    pub fn handle_message(&mut self, message: String)
+    pub fn handle_textmessage(&mut self, message: String)
+    {
+        if self.state < ClientState::Running {
+            // Do nothing if not yet setup
+            return;
+        }
+        println!("{}", message);
+        self.outgoing.extend_from_slice(message.as_bytes());
+        self.state = ClientState::RunningAndWriting;
+        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+    }
+
+    pub fn handle_binarymessage(&mut self, message: Vec<u8>)
     {
         if self.state < ClientState::Running {
             // Do nothing if not yet setup
             return;
         }
 
-        self.outgoing.extend_from_slice(message.as_bytes());
-        self.outgoing.push(0x0A);
+        self.outgoing.extend_from_slice(&message);
         self.state = ClientState::RunningAndWriting;
         self.sender.send(EventMessage::ReArm(self.token)).unwrap();
     }
 
     // Process incoming chat messages from the incoming buffer
     pub fn process_incoming(&mut self) {
+        let frame = WebSocketFrame::read(&mut self.socket);
+
+        match frame {
+            Ok(frame) => {
+                match frame.get_opcode() {
+                    OpCode::TextFrame => {
+                        let payload = String::from_utf8(frame.payload).unwrap();
+                        self.sender.send(EventMessage::TextMessage(self.token, payload));
+                    },
+                    OpCode::BinaryFrame => {
+                        self.sender.send(EventMessage::BinaryMessage(self.token, frame.payload));
+                    },
+                    OpCode::Ping => {
+                        self.sender.send(EventMessage::Pong(self.token, frame.payload));
+                    },
+                    OpCode::ConnectionClose => {
+                        self.sender.send(EventMessage::Close(self.token));
+                    },
+                    _ => {}
+                }
+
+                self.state = self.state.next();
+            }
+            Err(e) => println!("error while reading frame: {}", e)
+        }
+        /*
         loop {
             if let Some(lf) = self.incoming.iter().position(|c| *c==0x0A) {
                 let mut message = self.incoming.split_off(lf);
@@ -235,6 +274,7 @@ impl Client {
             }
             break;
         }
+        */
     }
 
     // Process upgrade for the incoming buffer

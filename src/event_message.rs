@@ -9,6 +9,12 @@ pub enum EventMessage {
     /// shut down
     Close(Token),
 
-    /// Client received this message
-    Message(Token, String),
+    Ping(Token, Vec<u8>),
+    Pong(Token, Vec<u8>),
+
+    /// Client received this String
+    TextMessage(Token, String),
+
+    /// Client received these Bytes
+    BinaryMessage(Token, Vec<u8>),
 }

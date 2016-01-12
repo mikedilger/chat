@@ -5,12 +5,14 @@ extern crate num_cpus;
 extern crate rustc_serialize;
 extern crate http_muncher;
 extern crate sha1;
+extern crate byteorder;
 
 mod handler;
 mod server;
 mod client;
 mod event_message;
 mod http_parser;
+mod websocket_frame;
 
 use std::net::SocketAddr;
 use mio::EventLoop;
