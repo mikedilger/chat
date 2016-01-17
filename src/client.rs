@@ -8,6 +8,7 @@ use http_parser::HttpParser;
 use http_muncher::Parser;
 use sha1;
 use websocket_frame::{WebSocketFrame, OpCode};
+use time;
 
 use rustc_serialize::base64::{ToBase64, STANDARD};
 use std::collections::HashMap;
@@ -42,11 +43,12 @@ pub struct Client {
     socket: TcpStream,
     sender: Sender<EventMessage>,
     state: ClientState,
-    incoming: Vec<u8>,
     outgoing: Vec<u8>,
     headers: Arc<Mutex<HashMap<String, String>>>,
     http_parser: Parser<HttpParser>,
-
+    ping_sent: Option<time::Tm>,
+    ping_payload: Vec<u8>,
+    closing: bool,
 }
 
 impl Client {
@@ -59,13 +61,15 @@ impl Client {
             token: token,
             sender: sender,
             state: ClientState::New,
-            incoming: Vec::with_capacity(1024),
             outgoing: Vec::with_capacity(1024),
             headers: headers.clone(),
             http_parser: Parser::request(HttpParser{
                 current_key: None,
                 headers: headers.clone(),
             }),
+            ping_sent: None,
+            ping_payload: b"joist".to_vec(),
+            closing: false,
         }
     }
 
@@ -256,6 +260,24 @@ impl Client {
         }
     }
 
+    pub fn send_frame(&mut self, outbound_frame: WebSocketFrame)
+    {
+        outbound_frame.write(&mut self.outgoing).unwrap();
+
+        self.state = ClientState::RunningAndWriting;
+    }
+
+    pub fn handle_close_request(&mut self, close_frame: WebSocketFrame)
+    {
+        println!("Close request received");
+
+        if !self.closing
+        {
+            self.closing = true;
+            self.send_frame(WebSocketFrame::close_from(&close_frame));
+        }
+    }
+
     pub fn handle_ping(&mut self, ping_frame: WebSocketFrame)
     {
         println!("Ping received");
@@ -265,7 +287,21 @@ impl Client {
 
     pub fn handle_pong(&mut self, payload: Vec<u8>)
     {
-        println!("Pong received");
+        match self.ping_sent {
+            None => {
+                println!("Unexpected pong received");
+            },
+            Some(ping_sent) => {
+                let rtt = time::now_utc() - ping_sent;
+
+                self.ping_sent = None;
+                if payload == self.ping_payload {
+                    println!("Pong received, round trip time: {}", rtt);
+                } else {
+                    println!("Pong received (but with the wrong payload), round trip time: {}", rtt);
+                }
+            },
+        };
     }
 
     pub fn handle_text_frame(&mut self, payload: String)
@@ -275,17 +311,9 @@ impl Client {
             return;
         }
 
-        println!("Text recieved: {}", payload);
+        println!("Text received: {}", payload);
 
         self.send_text_frame(payload);
-        //self.sender.send(EventMessage::ReArm(self.token)).unwrap();
-    }
-
-    pub fn send_frame(&mut self, outbound_frame: WebSocketFrame)
-    {
-        outbound_frame.write(&mut self.outgoing).unwrap();
-
-        self.state = ClientState::RunningAndWriting;
     }
 
     pub fn handle_binary_frame(&mut self, payload: Vec<u8>)
@@ -295,9 +323,18 @@ impl Client {
             return;
         }
 
-        // do the actual handling here
+        println!("Binary frame received");
 
         self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+    }
+
+    pub fn send_ping(&mut self, payload: Vec<u8>)
+    {
+        self.ping_payload = payload.to_owned();
+
+        self.ping_sent = Some(time::now_utc());
+
+        self.send_frame(WebSocketFrame::ping(payload));
     }
 
     pub fn send_text_frame(&mut self, payload: String)

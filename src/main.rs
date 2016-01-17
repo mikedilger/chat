@@ -6,6 +6,7 @@ extern crate rustc_serialize;
 extern crate http_muncher;
 extern crate sha1;
 extern crate byteorder;
+extern crate time;
 
 mod handler;
 mod server;

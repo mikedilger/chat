@@ -111,8 +111,18 @@ impl Server {
     }
 
     pub fn handle_client_close(&mut self, client_token: Token) {
-        // more may be required here
         let _ = self.clients.remove(&client_token);
+    }
+
+    pub fn handle_client_close_request(&mut self, client_token: Token, close_frame: WebSocketFrame) {
+        let client = match self.clients.get_mut(&client_token) {
+            None => return,
+            Some(client) => client.clone(),
+        };
+
+        let mut client = client.lock().unwrap();
+
+        client.handle_close_request(close_frame);
     }
 
     pub fn handle_client_ping(&mut self, client_token: Token, payload: WebSocketFrame) {

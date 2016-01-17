@@ -10,6 +10,9 @@ pub enum EventMessage {
     /// shut down
     Close(Token),
 
+    /// Client received a polite close notification
+    CloseRequest(Token, WebSocketFrame),
+
     /// Client received ping frame
     Ping(Token, WebSocketFrame),
 

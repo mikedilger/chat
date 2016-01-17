@@ -55,6 +55,9 @@ impl Handler for EventHandler {
             EventMessage::Close(client_token) => {
                 self.server.handle_client_close(client_token);
             },
+            EventMessage::CloseRequest(client_token, payload) => {
+                self.server.handle_client_close_request(client_token, payload);
+            },
             EventMessage::Ping(client_token, payload) => {
                 self.server.handle_client_ping(client_token, payload);
             },
