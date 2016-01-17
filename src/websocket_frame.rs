@@ -5,7 +5,6 @@
 use std::{io, iter, u16};
 use std::io::{Read, Write, ErrorKind, Cursor};
 use std::error::Error;
-use mio::Token;
 
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
 
@@ -52,7 +51,9 @@ impl WebSocketFrameHeader {
     fn new_header(len: usize, opcode: OpCode) -> WebSocketFrameHeader {
         WebSocketFrameHeader {
             fin: true,
-            rsv1: false, rsv2: false, rsv3: false,
+            rsv1: false,
+            rsv2: false,
+            rsv3: false,
             masked: false,
             payload_length: Self::determine_len(len),
             opcode: opcode

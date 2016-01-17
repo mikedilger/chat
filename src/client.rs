@@ -44,9 +44,9 @@ pub struct Client {
     state: ClientState,
     incoming: Vec<u8>,
     outgoing: Vec<u8>,
-    name: String,
     headers: Arc<Mutex<HashMap<String, String>>>,
     http_parser: Parser<HttpParser>,
+
 }
 
 impl Client {
@@ -61,7 +61,6 @@ impl Client {
             state: ClientState::New,
             incoming: Vec::with_capacity(1024),
             outgoing: Vec::with_capacity(1024),
-            name: "Guest".to_string(),
             headers: headers.clone(),
             http_parser: Parser::request(HttpParser{
                 current_key: None,
@@ -105,8 +104,7 @@ impl Client {
                 println!("Event out of step: Readable, but {:?}", self.state);
                 self.sender.send(EventMessage::ReArm(self.token)).unwrap();
             },
-            ClientState::AwaitingHandshake | ClientState::Running
-                | ClientState::RunningAndWriting =>
+            ClientState::AwaitingHandshake =>
             {
                 let mut buf: [u8; 1024] = [0; 1024];
                 loop {
@@ -141,18 +139,65 @@ impl Client {
                                     self.http_parser.parse(&buf[..size]);
 
                                     if self.http_parser.is_upgrade() {
-                                        self.process_upgrade();
+                                        let headers = self.headers.lock().unwrap();
+
+                                        let mut m = sha1::Sha1::new();
+                                        let mut rbuf = [0u8; 20];
+
+                                        m.update(&headers.get("Sec-WebSocket-Key").unwrap().as_bytes());
+                                        m.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11".as_bytes());
+
+                                        m.output(&mut rbuf);
+
+                                        let response = fmt::format(format_args!("HTTP/1.1 101 Switching Protocols\r\n\
+                                                                                 Connection: Upgrade\r\n\
+                                                                                 Sec-WebSocket-Accept: {}\r\n\
+                                                                                 Upgrade: websocket\r\n\r\n", rbuf.to_base64(STANDARD)));
+
+                                        self.outgoing.extend_from_slice(response.as_bytes());
+
+                                        self.state = ClientState::RunningAndWriting;
+
+                                        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+
                                         break;
                                     }
                                     continue; // in case there is more to read
                                 },
-                                _ => {
-                                    self.process_incoming();
-                                    continue; // in case there is more to read
-                                }
+                                _ => { }
                             }
                         }
                     }
+                }
+            },
+            ClientState::Running | ClientState::RunningAndWriting => {
+                let frame = WebSocketFrame::read(&mut self.socket);
+
+                match frame {
+                    Ok(frame) => {
+                        match frame.get_opcode() {
+                            OpCode::TextFrame => {
+                                let payload = String::from_utf8(frame.payload).unwrap();
+                                self.sender.send(EventMessage::TextFrame(self.token, payload)).unwrap();
+                            },
+                            OpCode::BinaryFrame => {
+                                self.sender.send(EventMessage::BinaryFrame(self.token, frame.payload)).unwrap();
+                            },
+                            OpCode::ConnectionClose => {
+                                self.sender.send(EventMessage::Close(self.token)).unwrap();
+                            },
+                            OpCode::Ping => {
+                                self.sender.send(EventMessage::Ping(self.token, frame)).unwrap();
+                            },
+                            OpCode::Pong => {
+                                self.sender.send(EventMessage::Pong(self.token, frame.payload)).unwrap();
+                            },
+                        }
+
+                        // self.state = self.state.next();
+                        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+                    }
+                    Err(e) => println!("error while reading frame: {}", e)
                 }
             },
         }
@@ -211,93 +256,57 @@ impl Client {
         }
     }
 
-    pub fn handle_textmessage(&mut self, message: String)
+    pub fn handle_ping(&mut self, ping_frame: WebSocketFrame)
+    {
+        println!("Ping received");
+
+        self.send_frame(WebSocketFrame::pong(&ping_frame));
+    }
+
+    pub fn handle_pong(&mut self, payload: Vec<u8>)
+    {
+        println!("Pong received");
+    }
+
+    pub fn handle_text_frame(&mut self, payload: String)
     {
         if self.state < ClientState::Running {
             // Do nothing if not yet setup
             return;
         }
-        println!("{}", message);
-        self.outgoing.extend_from_slice(message.as_bytes());
-        self.state = ClientState::RunningAndWriting;
-        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+
+        println!("Text recieved: {}", payload);
+
+        self.send_text_frame(payload);
+        //self.sender.send(EventMessage::ReArm(self.token)).unwrap();
     }
 
-    pub fn handle_binarymessage(&mut self, message: Vec<u8>)
+    pub fn send_frame(&mut self, outbound_frame: WebSocketFrame)
+    {
+        outbound_frame.write(&mut self.outgoing).unwrap();
+
+        self.state = ClientState::RunningAndWriting;
+    }
+
+    pub fn handle_binary_frame(&mut self, payload: Vec<u8>)
     {
         if self.state < ClientState::Running {
             // Do nothing if not yet setup
             return;
         }
 
-        self.outgoing.extend_from_slice(&message);
-        self.state = ClientState::RunningAndWriting;
+        // do the actual handling here
+
         self.sender.send(EventMessage::ReArm(self.token)).unwrap();
     }
 
-    // Process incoming chat messages from the incoming buffer
-    pub fn process_incoming(&mut self) {
-        let frame = WebSocketFrame::read(&mut self.socket);
-
-        match frame {
-            Ok(frame) => {
-                match frame.get_opcode() {
-                    OpCode::TextFrame => {
-                        let payload = String::from_utf8(frame.payload).unwrap();
-                        self.sender.send(EventMessage::TextMessage(self.token, payload));
-                    },
-                    OpCode::BinaryFrame => {
-                        self.sender.send(EventMessage::BinaryMessage(self.token, frame.payload));
-                    },
-                    OpCode::Ping => {
-                        self.sender.send(EventMessage::Pong(self.token, frame.payload));
-                    },
-                    OpCode::ConnectionClose => {
-                        self.sender.send(EventMessage::Close(self.token));
-                    },
-                    _ => {}
-                }
-
-                self.state = self.state.next();
-            }
-            Err(e) => println!("error while reading frame: {}", e)
-        }
-        /*
-        loop {
-            if let Some(lf) = self.incoming.iter().position(|c| *c==0x0A) {
-                let mut message = self.incoming.split_off(lf);
-                message.remove(0); // Drop the leading LF
-                ::std::mem::swap(&mut self.incoming, &mut message);
-                let message = format!("{}: {}", self.name, String::from_utf8_lossy(&message));
-                self.sender.send(EventMessage::Message(self.token, message)).unwrap();
-                continue;
-            }
-            break;
-        }
-        */
+    pub fn send_text_frame(&mut self, payload: String)
+    {
+        self.send_frame(WebSocketFrame::from(&*payload));
     }
 
-    // Process upgrade for the incoming buffer
-    pub fn process_upgrade(&mut self) {
-        let headers = self.headers.lock().unwrap();
-
-        let mut m = sha1::Sha1::new();
-        let mut rbuf = [0u8; 20];
-
-        m.update(&headers.get("Sec-WebSocket-Key").unwrap().as_bytes());
-        m.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11".as_bytes());
-
-        m.output(&mut rbuf);
-
-        let response = fmt::format(format_args!("HTTP/1.1 101 Switching Protocols\r\n\
-                                                 Connection: Upgrade\r\n\
-                                                 Sec-WebSocket-Accept: {}\r\n\
-                                                 Upgrade: websocket\r\n\r\n", rbuf.to_base64(STANDARD)));
-
-        self.outgoing.extend_from_slice(response.as_bytes());
-
-        self.state = ClientState::RunningAndWriting;
-
-        self.sender.send(EventMessage::ReArm(self.token)).unwrap();
+    pub fn send_binary_frame(&mut self, payload: Vec<u8>)
+    {
+        self.send_frame(WebSocketFrame::from(payload));
     }
 }

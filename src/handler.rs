@@ -46,22 +46,27 @@ impl Handler for EventHandler {
     }
 
     fn notify(&mut self, event_loop: &mut EventLoop<EventHandler>,
-              message: EventMessage)
+              payload: EventMessage)
     {
-        match message {
+        match payload {
             EventMessage::ReArm(client_token) => {
                 self.server.handle_client_rearm(event_loop, client_token);
             },
             EventMessage::Close(client_token) => {
                 self.server.handle_client_close(client_token);
             },
-            EventMessage::TextMessage(client_token, message) => {
-                self.server.handle_client_textmessage(client_token, message);
+            EventMessage::Ping(client_token, payload) => {
+                self.server.handle_client_ping(client_token, payload);
             },
-            EventMessage::BinaryMessage(client_token, message) => {
-                self.server.handle_client_binarymessage(client_token, message);
+            EventMessage::Pong(client_token, payload) => {
+                self.server.handle_client_pong(client_token, payload);
             },
-            _ => {},
+            EventMessage::TextFrame(client_token, payload) => {
+                self.server.handle_client_text_frame(client_token, payload);
+            },
+            EventMessage::BinaryFrame(client_token, payload) => {
+                self.server.handle_client_binary_frame(client_token, payload);
+            },
         }
     }
 }

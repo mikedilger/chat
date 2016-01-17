@@ -1,5 +1,6 @@
 
 use mio::Token;
+use websocket_frame::WebSocketFrame;
 
 pub enum EventMessage {
     /// Client has finished processing, and needs to be re-armed
@@ -9,12 +10,15 @@ pub enum EventMessage {
     /// shut down
     Close(Token),
 
-    Ping(Token, Vec<u8>),
+    /// Client received ping frame
+    Ping(Token, WebSocketFrame),
+
+    /// Client received pong frame
     Pong(Token, Vec<u8>),
 
     /// Client received this String
-    TextMessage(Token, String),
+    TextFrame(Token, String),
 
     /// Client received these Bytes
-    BinaryMessage(Token, Vec<u8>),
+    BinaryFrame(Token, Vec<u8>),
 }

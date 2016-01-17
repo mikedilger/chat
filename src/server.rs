@@ -7,6 +7,7 @@ use mio::tcp::TcpListener;
 use mio::{EventLoop,EventSet,PollOpt,Token};
 use handler::EventHandler;
 use client::Client;
+use websocket_frame::WebSocketFrame;
 
 pub const LISTENER_FD: Token = Token(0);
 
@@ -110,32 +111,51 @@ impl Server {
     }
 
     pub fn handle_client_close(&mut self, client_token: Token) {
+        // more may be required here
         let _ = self.clients.remove(&client_token);
     }
 
-    pub fn handle_client_textmessage(&mut self, client_token: Token, message: String) {
-        for (_,client) in self.clients.iter() {
-            // FIXME: send clients an arc around a singular message in memory,
-            //  dont clone the message for every client
+    pub fn handle_client_ping(&mut self, client_token: Token, payload: WebSocketFrame) {
+        let client = match self.clients.get_mut(&client_token) {
+            None => return,
+            Some(client) => client.clone(),
+        };
 
-            let mut client = client.lock().unwrap();
-            if client.token == client_token {
-                continue;
-            }
-            client.handle_textmessage(message.clone());
-        }
+        let mut client = client.lock().unwrap();
+
+        client.handle_ping(payload);
     }
 
-    pub fn handle_client_binarymessage(&mut self, client_token: Token, message: Vec<u8>) {
-        for (_,client) in self.clients.iter() {
-            // FIXME: send clients an arc around a singular message in memory,
-            //  dont clone the message for every client
+    pub fn handle_client_pong(&mut self, client_token: Token, payload: Vec<u8>) {
+        let client = match self.clients.get_mut(&client_token) {
+            None => return,
+            Some(client) => client.clone(),
+        };
 
-            let mut client = client.lock().unwrap();
-            if client.token == client_token {
-                continue;
-            }
-            client.handle_binarymessage(message.clone());
-        }
+        let mut client = client.lock().unwrap();
+
+        client.handle_pong(payload);
+    }
+
+    pub fn handle_client_text_frame(&mut self, client_token: Token, payload: String) {
+        let client = match self.clients.get_mut(&client_token) {
+            None => return,
+            Some(client) => client.clone(),
+        };
+
+        let mut client = client.lock().unwrap();
+
+        client.handle_text_frame(payload);
+    }
+
+    pub fn handle_client_binary_frame(&mut self, client_token: Token, payload: Vec<u8>) {
+        let client = match self.clients.get_mut(&client_token) {
+            None => return,
+            Some(client) => client.clone(),
+        };
+
+        let mut client = client.lock().unwrap();
+
+        client.handle_binary_frame(payload);
     }
 }
