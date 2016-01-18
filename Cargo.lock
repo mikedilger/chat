@@ -80,7 +80,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "log"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "libc 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -89,11 +89,11 @@ dependencies = [
 [[package]]
 name = "mio"
 version = "0.5.0"
-source = "git+https://github.com/carllerche/mio#cf8a9a2e5cd5f4c5359caf147ec175c254372b15"
+source = "git+https://github.com/carllerche/mio#6d8f2e614c59c1b2ff2700912b696d6ba8735896"
 dependencies = [
  "bytes 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "miow 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "net2 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
  "nix 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
